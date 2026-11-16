@@ -70,10 +70,17 @@ async function daftarEkskulAction(formData: FormData) {
     );
   }
 
-  // 5. Validasi Bentrok Jadwal (hari dan sesi yang sama)
+  // BONUS: Validasi Maksimal 2 Ekskul per Murid
   const ekskulDiikutiUser = pendaftar.filter(
     (p) => p.nama.toLowerCase() === nama.toLowerCase(),
   );
+  if (ekskulDiikutiUser.length >= 2) {
+    redirect(
+      `/ekskul/${ekskulId}?errorLain=${encodeURIComponent("Kamu sudah mengikuti maksimal 2 ekstrakurikuler.")}`,
+    );
+  }
+
+  // 5. Validasi Bentrok Jadwal (hari dan sesi yang sama)
   for (const p of ekskulDiikutiUser) {
     const itemEkskulLain = ekskul.find((e) => e.id === p.ekskulId);
     if (
@@ -98,6 +105,7 @@ async function daftarEkskulAction(formData: FormData) {
 
   revalidatePath(`/ekskul/${ekskulId}`);
   revalidatePath(`/ekskul`);
+  revalidatePath(`/saya`);
 
   const jamText = JAM_SESI[targetEkskul.sesi] || "";
   const successMsg = `Pendaftaran #${nomorBaru} berhasil: ${targetEkskul.nama}, ${targetEkskul.hari}, sesi ${targetEkskul.sesi} (${jamText}).`;

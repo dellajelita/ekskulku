@@ -10,6 +10,7 @@ import {
 type SearchParams = {
   kategori?: string;
   hari?: string;
+  sisa?: string;
 };
 
 export const metadata = {
@@ -24,13 +25,25 @@ export default async function DaftarEkskulPage({
   const resolvedParams = await searchParams;
   const selectedKategori = resolvedParams.kategori || "Semua";
   const selectedHari = resolvedParams.hari || "Semua";
+  const selectedSisa =
+    resolvedParams.sisa !== undefined && resolvedParams.sisa !== ""
+      ? Number(resolvedParams.sisa)
+      : null;
 
-  // Filter data berdasarkan kategori dan hari secara bersamaan di server
+  // Filter data berdasarkan kategori, hari, dan sisa tempat secara bersamaan di server
   const filteredEkskul = ekskul.filter((item) => {
+    const jumlahPendaftar = pendaftar.filter(
+      (p) => p.ekskulId === item.id,
+    ).length;
+    const sisaTempat = item.kuota - jumlahPendaftar;
+
     const matchKategori =
       selectedKategori === "Semua" || item.kategori === selectedKategori;
     const matchHari = selectedHari === "Semua" || item.hari === selectedHari;
-    return matchKategori && matchHari;
+    const matchSisa =
+      selectedSisa !== null ? sisaTempat === selectedSisa : true;
+
+    return matchKategori && matchHari && matchSisa;
   });
 
   return (
@@ -102,12 +115,31 @@ export default async function DaftarEkskulPage({
           </div>
 
           <div>
+            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">
+              Sisa Tempat:
+            </label>
+            <input
+              type="number"
+              name="sisa"
+              defaultValue={selectedSisa !== null ? selectedSisa : ""}
+              placeholder="Bebas"
+              className="border p-2 rounded bg-white text-sm w-28"
+            />
+          </div>
+
+          <div className="flex gap-2">
             <button
               type="submit"
               className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 transition"
             >
               Saring
             </button>
+            <Link
+              href="/ekskul"
+              className="bg-gray-200 text-gray-700 px-3 py-2 rounded text-sm font-medium hover:bg-gray-300 transition flex items-center"
+            >
+              Reset
+            </Link>
           </div>
         </form>
 
