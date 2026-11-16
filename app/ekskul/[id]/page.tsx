@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import SubmitButton from "./SubmitButton"; // Komponen tombol client untuk "Memproses..."
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -16,7 +17,7 @@ async function ambilAnggota(ekskulId: number) {
   return pendaftar.filter((p) => p.ekskulId === ekskulId);
 }
 
-// Server Action untuk memproses pendaftaran dengan penanganan error yang rapi
+// Server Action untuk memproses pendaftaran dengan urutan validasi ketat sesuai modul
 async function daftarEkskulAction(formData: FormData) {
   "use server";
 
@@ -28,29 +29,29 @@ async function daftarEkskulAction(formData: FormData) {
   cookieStore.set("namaUser", nama);
   cookieStore.set("kelasUser", kelas);
 
+  // 1. Validasi ID Ekskul
   const targetEkskul = ekskul.find((e) => e.id === ekskulId);
   if (!targetEkskul) {
-    redirect(`/ekskul/${ekskulId}?error=ID ekskul tidak valid`);
-  }
-
-  // Validasi kolom minimal 3 karakter
-  let errorMsg = "";
-  if (nama.length < 3) errorMsg = "Nama minimal 3 huruf.";
-  else if (kelas.length < 3) errorMsg = "Kelas minimal 3 karakter.";
-
-  if (errorMsg) {
-    redirect(`/ekskul/${ekskulId}?error=${encodeURIComponent(errorMsg)}`);
-  }
-
-  // Validasi Kuota Penuh
-  const anggotaEkskul = pendaftar.filter((p) => p.ekskulId === ekskulId);
-  if (anggotaEkskul.length >= targetEkskul.kuota) {
     redirect(
-      `/ekskul/${ekskulId}?error=${encodeURIComponent(`Kuota ${targetEkskul.nama} sudah penuh (${targetEkskul.kuota} orang).`)}`,
+      `/ekskul/${ekskulId}?errorLain=${encodeURIComponent("ID ekskul tidak valid.")}`,
     );
   }
 
-  // Validasi Sudah Terdaftar
+  // 2. Validasi Galat per Kolom (nama minimal 3 huruf, kelas minimal 3 karakter)
+  let errNama = "";
+  let errKelas = "";
+  if (nama.length < 3) errNama = "Nama minimal 3 huruf.";
+  if (kelas.length < 3) errKelas = "Kelas minimal 3 karakter.";
+
+  if (errNama || errKelas) {
+    redirect(
+      `/ekskul/${ekskulId}?errNama=${encodeURIComponent(errNama)}&errKelas=${encodeURIComponent(errKelas)}`,
+    );
+  }
+
+  const anggotaEkskul = pendaftar.filter((p) => p.ekskulId === ekskulId);
+
+  // 3. Validasi Sudah Terdaftar (case-insensitive)
   const sudahAda = anggotaEkskul.some(
     (p) =>
       p.nama.toLowerCase() === nama.toLowerCase() &&
@@ -58,11 +59,18 @@ async function daftarEkskulAction(formData: FormData) {
   );
   if (sudahAda) {
     redirect(
-      `/ekskul/${ekskulId}?error=${encodeURIComponent(`${nama} (${kelas}) sudah terdaftar di ekskul ini.`)}`,
+      `/ekskul/${ekskulId}?errorLain=${encodeURIComponent(`${nama} (${kelas}) sudah terdaftar di ekskul ini.`)}`,
     );
   }
 
-  // Validasi Bentrok Jadwal
+  // 4. Validasi Kuota Penuh
+  if (anggotaEkskul.length >= targetEkskul.kuota) {
+    redirect(
+      `/ekskul/${ekskulId}?errorLain=${encodeURIComponent(`Kuota ${targetEkskul.nama} sudah penuh (${targetEkskul.kuota} orang).`)}`,
+    );
+  }
+
+  // 5. Validasi Bentrok Jadwal (hari dan sesi yang sama)
   const ekskulDiikutiUser = pendaftar.filter(
     (p) => p.nama.toLowerCase() === nama.toLowerCase(),
   );
@@ -74,12 +82,12 @@ async function daftarEkskulAction(formData: FormData) {
       itemEkskulLain.sesi === targetEkskul.sesi
     ) {
       redirect(
-        `/ekskul/${ekskulId}?error=${encodeURIComponent(`Jadwal bentrok dengan ${itemEkskulLain.nama} (${targetEkskul.hari}, sesi ${targetEkskul.sesi}).`)}`,
+        `/ekskul/${ekskulId}?errorLain=${encodeURIComponent(`Jadwal bentrok dengan ${itemEkskulLain.nama} (${targetEkskul.hari}, sesi ${targetEkskul.sesi}).`)}`,
       );
     }
   }
 
-  // Berhasil Mendaftar
+  // Jika Berhasil Mendaftar
   const nomorBaru = pendaftar.length + 1;
   pendaftar.push({
     nomor: nomorBaru,
@@ -90,9 +98,11 @@ async function daftarEkskulAction(formData: FormData) {
 
   revalidatePath(`/ekskul/${ekskulId}`);
   revalidatePath(`/ekskul`);
-  redirect(
-    `/ekskul/${ekskulId}?success=${encodeURIComponent(`Pendaftaran #${nomorBaru} berhasil: ${targetEkskul.nama}, ${targetEkskul.hari}, sesi ${targetEkskul.sesi} (${JAM_SESI[targetEkskul.sesi] || ""}).`)}`,
-  );
+
+  const jamText = JAM_SESI[targetEkskul.sesi] || "";
+  const successMsg = `Pendaftaran #${nomorBaru} berhasil: ${targetEkskul.nama}, ${targetEkskul.hari}, sesi ${targetEkskul.sesi} (${jamText}).`;
+
+  redirect(`/ekskul/${ekskulId}?success=${encodeURIComponent(successMsg)}`);
 }
 
 // Komponen Bagian Anggota
@@ -169,8 +179,16 @@ export default async function DetailEkskulPage({
   const defaultKelas = cookieStore.get("kelasUser")?.value || "";
   const jamSesiText = JAM_SESI[item.sesi] || "";
 
-  const errorMessage =
-    typeof resolvedSearch.error === "string" ? resolvedSearch.error : null;
+  const errNama =
+    typeof resolvedSearch.errNama === "string" ? resolvedSearch.errNama : null;
+  const errKelas =
+    typeof resolvedSearch.errKelas === "string"
+      ? resolvedSearch.errKelas
+      : null;
+  const errorLain =
+    typeof resolvedSearch.errorLain === "string"
+      ? resolvedSearch.errorLain
+      : null;
   const successMessage =
     typeof resolvedSearch.success === "string" ? resolvedSearch.success : null;
 
@@ -206,12 +224,7 @@ export default async function DetailEkskulPage({
           </p>
         </div>
 
-        {/* Notifikasi Pesan Sukses / Error */}
-        {errorMessage && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm font-medium">
-            ⚠️ {errorMessage}
-          </div>
-        )}
+        {/* Pesan Sukses */}
         {successMessage && (
           <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm font-medium">
             ✅ {successMessage}
@@ -225,6 +238,8 @@ export default async function DetailEkskulPage({
           </h2>
           <form action={daftarEkskulAction} className="space-y-4">
             <input type="hidden" name="ekskulId" value={item.id} />
+
+            {/* Input Nama */}
             <div>
               <label className="block text-xs font-bold text-gray-600 uppercase mb-1">
                 Nama:
@@ -237,7 +252,14 @@ export default async function DetailEkskulPage({
                 className="w-full border p-2.5 rounded-lg bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 placeholder="Masukkan nama lengkap"
               />
+              {errNama && (
+                <p className="text-xs text-red-600 mt-1 font-medium">
+                  ⚠️ {errNama}
+                </p>
+              )}
             </div>
+
+            {/* Input Kelas */}
             <div>
               <label className="block text-xs font-bold text-gray-600 uppercase mb-1">
                 Kelas:
@@ -250,13 +272,22 @@ export default async function DetailEkskulPage({
                 className="w-full border p-2.5 rounded-lg bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 placeholder="Contoh: XI RPL"
               />
+              {errKelas && (
+                <p className="text-xs text-red-600 mt-1 font-medium">
+                  ⚠️ {errKelas}
+                </p>
+              )}
             </div>
-            <button
-              type="submit"
-              className="w-full bg-blue-600 text-white font-medium py-2.5 rounded-lg hover:bg-blue-700 transition text-sm shadow"
-            >
-              Daftar Sekarang
-            </button>
+
+            {/* Galat Aturan Lain (Di atas tombol) */}
+            {errorLain && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs font-medium">
+                ⚠️ {errorLain}
+              </div>
+            )}
+
+            {/* Tombol Kirim dengan status Memproses... */}
+            <SubmitButton />
           </form>
         </div>
 
